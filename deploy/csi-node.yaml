@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-node
+  namespace: kube-system
+  labels:
+    app: csi-node
+spec:
+  selector:
+    matchLabels:
+      app: csi-node
+  template:
+    metadata:
+      labels:
+        app: csi-node
+    spec:
+      serviceAccountName: csi-node-sa
+      containers:
+        - name: csi-node
+          securityContext:
+            privileged: true
+          image: siming.net/sre/custom-csi:main_de5c0f9_2024-10-08-170548
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /var/lib/kubelet/plugins/hostpath.csi.k8s.io/
+              mountPropagation: Bidirectional
+            - name: pods-mount-dir
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: HostToContainer
+            - name: tmp-dir  # 挂载 /tmp 目录
+              mountPath: /tmp
+              mountPropagation: Bidirectional
+
+        - name: csi-driver-registrar
+          image: quay.io/k8scsi/csi-node-driver-registrar:v2.0.0
+          securityContext:
+            privileged: true
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--kubelet-registration-path=/var/lib/kubelet/plugins/hostpath.csi.k8s.io/csi.sock"
+          volumeMounts:
+            - name: plugin-dir
+              mountPath: /csi
+            - name: registration-dir
+              mountPath: /registration
+
+      volumes:
+        - name: plugin-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/hostpath.csi.k8s.io/
+            type: DirectoryOrCreate
+        - name: pods-mount-dir
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: DirectoryOrCreate
+        - name: registration-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins_registry/
+            type: DirectoryOrCreate
+        - name: tmp-dir  # 宿主机 /tmp 目录挂载
+          hostPath:
+            path: /tmp
+            type: Directory

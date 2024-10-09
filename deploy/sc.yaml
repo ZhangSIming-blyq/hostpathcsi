@@ -1,0 +1,7 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: custom-csi-sc
+provisioner: hostpath.csi.k8s.io  # 注意：这里的 provisioner 名字必须和你在 CSI 驱动中的名称一致
+volumeBindingMode: Immediate       # 表示 PVC 立即绑定
+reclaimPolicy: Delete              # PVC 删除时删除卷

@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: csi-controller
+  namespace: kube-system
+spec:
+  serviceName: "csi-controller"
+  replicas: 1
+  selector:
+    matchLabels:
+      app: csi-controller
+  template:
+    metadata:
+      labels:
+        app: csi-controller
+    spec:
+      serviceAccountName: csi-controller-sa
+      containers:
+        - name: csi-controller
+          securityContext:
+            privileged: true
+          image: siming.net/sre/custom-csi:main_de5c0f9_2024-10-08-231124
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/kubelet/plugins/hostpath.csi.k8s.io/
+              mountPropagation: Bidirectional
+            - name: pods-dir  # 挂载 /var/lib/kubelet/pods 目录
+              mountPath: /var/lib/kubelet/pods
+              mountPropagation: Bidirectional
+            - name: tmp-dir  # 挂载 /tmp 目录
+              mountPath: /tmp
+              mountPropagation: Bidirectional
+
+        - name: external-provisioner
+          image: quay.io/k8scsi/csi-provisioner:v2.0.0
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--leader-election=true"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+        - name: external-attacher
+          image: quay.io/k8scsi/csi-attacher:v3.0.0
+          args:
+            - "--csi-address=/csi/csi.sock"
+            - "--leader-election=true"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /csi
+
+      volumes:
+        - name: socket-dir
+          hostPath:
+            path: /var/lib/kubelet/plugins/hostpath.csi.k8s.io/
+            type: DirectoryOrCreate
+        - name: pods-dir  # 宿主机 /var/lib/kubelet/pods 目录挂载
+          hostPath:
+            path: /var/lib/kubelet/pods
+            type: Directory
+        - name: volumes-dir  # 宿主机 /var/lib/kubelet/volumes 目录挂载
+          hostPath:
+            path: /var/lib/kubelet/volumes
+            type: Directory
+        - name: tmp-dir  # 宿主机 /tmp 目录挂载
+          hostPath:
+            path: /tmp
+            type: Directory
+
+---
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-controller-sa
+  namespace: kube-system
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-controller-role
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumes", "nodes"]
+    verbs: ["get", "list", "watch", "update", "create", "delete"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments", "csinodes"]
+    verbs: ["get", "list", "watch", "update", "create"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["volumeattachments/status"]  # 增加对 volumeattachments/status 的 patch 权限
+    verbs: ["patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "watch", "list", "update", "patch", "create"]
+
+---
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-controller-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-controller-role
+subjects:
+  - kind: ServiceAccount
+    name: csi-controller-sa
+    namespace: kube-system
